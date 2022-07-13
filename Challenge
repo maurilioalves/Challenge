@@ -1,0 +1,262 @@
+*&---------------------------------------------------------------------*
+*& Report ZCHALLENGE
+*&
+*&---------------------------------------------------------------------*
+REPORT zchallenge.
+
+TABLES: kna1, adr6,
+        sscrfields.
+TYPE-POOLS: icon.
+
+TYPES: BEGIN OF ty_kna1,
+        status     TYPE char10,
+        kunnr      TYPE kna1-kunnr,
+        name1      TYPE kna1-name1,
+        smtp_addr  TYPE adr6-smtp_addr,
+        pstlz      TYPE kna1-pstlz,
+        street     TYPE adrc-street,
+        house_num1 TYPE adrc-house_num1,
+        city2      TYPE adrc-city2,
+        city1      TYPE adrc-city1,
+       END OF ty_kna1.
+
+DATA: it_kna1 TYPE TABLE OF ty_kna1.
+DATA: it_icon TYPE TABLE OF icon.
+
+DATA: o_alv TYPE REF TO cl_salv_table.
+
+*----------------------------------------------------------------------*
+*       CLASS lcl_handle_events DEFINITION
+*----------------------------------------------------------------------*
+CLASS lcl_handle_events DEFINITION.
+
+  PUBLIC SECTION.
+    METHODS:
+        on_double_click
+          FOR EVENT double_click OF cl_salv_events_table
+            IMPORTING
+              row
+              column.
+
+ENDCLASS.                    "lcl_handle_events DEFINITION
+
+*----------------------------------------------------------------------*
+*       CLASS lcl_handle_events IMPLEMENTATION
+*----------------------------------------------------------------------*
+CLASS lcl_handle_events IMPLEMENTATION.
+
+  METHOD: on_double_click.
+
+    DATA: ls_kna1 TYPE ty_kna1.
+    DATA: lv_bukrs TYPE knb1-bukrs.
+
+    READ TABLE it_kna1 INTO ls_kna1
+    INDEX row.
+
+    IF sy-subrc = 0.
+
+      SELECT SINGLE bukrs
+        INTO lv_bukrs
+        FROM knb1
+        WHERE kunnr = ls_kna1-kunnr.
+
+      SET PARAMETER ID 'KUN' FIELD ls_kna1-kunnr .
+      CALL TRANSACTION 'XD02' AND SKIP FIRST SCREEN.
+    ENDIF.
+
+  ENDMETHOD.                    "on_double_click
+
+ENDCLASS.                    "lcl_handle_events IMPLEMENTATION
+
+
+SELECTION-SCREEN FUNCTION KEY: 1.
+SELECTION-SCREEN: BEGIN OF BLOCK b1.
+SELECT-OPTIONS: s_kunnr FOR kna1-kunnr.
+SELECTION-SCREEN: END OF BLOCK b1.
+
+INITIALIZATION.
+  PERFORM init.
+
+AT SELECTION-SCREEN.
+  PERFORM at_selection_screen.
+
+START-OF-SELECTION.
+
+  PERFORM select.
+  PERFORM fill_icon.
+  PERFORM display.
+
+*&---------------------------------------------------------------------*
+*&      Form  init
+*&---------------------------------------------------------------------*
+FORM init.
+
+  DATA: ls_dyntxt TYPE smp_dyntxt.
+
+  ls_dyntxt-text      = 'New customer'.
+  ls_dyntxt-icon_id   = icon_positive.
+  ls_dyntxt-icon_text = 'New customer'.
+  ls_dyntxt-quickinfo = 'New customer'.
+
+  sscrfields-functxt_01 = ls_dyntxt.
+
+ENDFORM.                    "init
+
+*&---------------------------------------------------------------------*
+*&      Form  at_selection_screen
+*&---------------------------------------------------------------------*
+FORM at_selection_screen.
+
+  CASE sscrfields-ucomm.
+      WHEN'FC01'.
+      CALL TRANSACTION 'XD01'.
+  ENDCASE.
+
+ENDFORM.                    "at_selection_screen
+
+*&---------------------------------------------------------------------*
+*&      Form  SELECT
+*&---------------------------------------------------------------------*
+FORM select.
+
+  DATA: lr_name TYPE RANGE OF icon-name.
+  DATA: ls_name LIKE LINE OF lr_name.
+
+  SELECT a~kunnr
+         a~name1
+         c~smtp_addr
+         a~pstlz
+         b~street
+         b~house_num1
+         b~city2
+         b~city1
+    FROM kna1 AS a
+    LEFT JOIN adrc AS b ON b~addrnumber = a~adrnr
+    LEFT JOIN adr6 AS c ON c~addrnumber = a~adrnr
+    INTO CORRESPONDING FIELDS OF TABLE it_kna1
+    WHERE kunnr IN s_kunnr.
+
+  IF sy-subrc = 0.
+
+    SORT it_kna1 BY kunnr.
+
+  ENDIF.
+
+ENDFORM.                    "SELECT
+
+*&---------------------------------------------------------------------*
+*&      Form  fill_icon
+*&---------------------------------------------------------------------*
+FORM fill_icon.
+
+  DATA: ls_kna1 TYPE ty_kna1.
+  DATA: ls_icon TYPE icon.
+
+  LOOP AT it_kna1 INTO ls_kna1.
+
+    IF ls_kna1-kunnr      IS INITIAL
+    OR ls_kna1-name1      IS INITIAL
+    OR ls_kna1-smtp_addr  IS INITIAL
+    OR ls_kna1-pstlz      IS INITIAL
+    OR ls_kna1-street     IS INITIAL
+    OR ls_kna1-house_num1 IS INITIAL
+    OR ls_kna1-city2      IS INITIAL
+    OR ls_kna1-city1      IS INITIAL.
+
+      ls_kna1-status = icon_yellow_light.
+
+    ELSE.
+
+      ls_kna1-status = icon_green_light.
+
+    ENDIF.
+
+    MODIFY it_kna1 FROM ls_kna1 INDEX sy-tabix.
+
+  ENDLOOP.
+
+ENDFORM.                    "fill_icon
+
+*&---------------------------------------------------------------------*
+*&      Form  display
+*&---------------------------------------------------------------------*
+FORM display.
+
+  DATA: lx_msg TYPE REF TO cx_salv_msg.
+
+  TRY.
+      cl_salv_table=>factory(
+        IMPORTING
+          r_salv_table = o_alv
+        CHANGING
+          t_table      = it_kna1 ).
+    CATCH cx_salv_msg INTO lx_msg.
+  ENDTRY.
+
+  PERFORM change_columns.
+
+  o_alv->display( ).
+
+ENDFORM.                    "display
+
+*&---------------------------------------------------------------------*
+*&      Form  change_columns
+*&---------------------------------------------------------------------*
+FORM change_columns.
+
+  DATA: lo_columns TYPE REF TO cl_salv_columns.
+  DATA: lo_column  TYPE REF TO cl_salv_column_table.
+
+  DATA: lo_func    TYPE REF TO cl_salv_functions_list.
+  DATA: lo_functional_settings TYPE REF TO cl_salv_functional_settings.
+  DATA: lo_tooltips TYPE REF TO cl_salv_tooltips,
+        lv_value    TYPE lvc_value.
+
+  DATA: lo_col_icon TYPE REF TO cl_salv_column,
+        lo_icon     TYPE REF TO cl_salv_column_table.
+
+  DATA: lo_events TYPE REF TO cl_salv_events_table.
+  DATA: lo_event TYPE REF TO lcl_handle_events.
+
+  CREATE OBJECT lo_event.
+
+  lo_func = o_alv->get_functions( ).
+  lo_func->set_default( value = abap_true ).
+
+  lo_columns = o_alv->get_columns( ).
+  lo_columns->set_optimize( 'X' ).
+
+  TRY.
+      lo_column ?= lo_columns->get_column( 'STATUS' ).
+      lo_column->set_icon( if_salv_c_bool_sap=>true ).
+      lo_column->set_long_text( 'Status' ).
+      lo_column->set_alignment( if_salv_c_alignment=>centered ).
+      lo_column->set_output_length( 20 ).
+    CATCH cx_salv_not_found.                            "#EC NO_HANDLER
+  ENDTRY.
+
+  lo_functional_settings = o_alv->get_functional_settings( ).
+  lo_tooltips = lo_functional_settings->get_tooltips( ).
+
+  TRY.
+      lv_value = icon_green_light.
+      lo_tooltips->add_tooltip(
+        type    = cl_salv_tooltip=>c_type_icon
+        value   = lv_value
+        tooltip = 'Everything is Processed' ).              "#EC NOTEXT
+    CATCH cx_salv_existing.                             "#EC NO_HANDLER
+  ENDTRY.
+
+  TRY.
+      lv_value = icon_yellow_light.
+      lo_tooltips->add_tooltip(
+        type    = cl_salv_tooltip=>c_type_icon
+        value   = lv_value
+        tooltip = 'Partially processed' ).                  "#EC NOTEXT
+    CATCH cx_salv_existing.                             "#EC NO_HANDLER
+  ENDTRY.
+
+  lo_events = o_alv->get_event( ).
+  SET HANDLER lo_event->on_double_click FOR lo_events.
+
+ENDFORM.                    "change_columns
